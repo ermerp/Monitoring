@@ -1,0 +1,11 @@
+# Virtuelle Umgebung
+myenv/
+
+#alte Bash scripts
+bash/
+
+*.jar
+*.txt
+*.csv
+*.png
+
