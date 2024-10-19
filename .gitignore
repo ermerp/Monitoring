@@ -9,3 +9,6 @@ bash/
 *.csv
 *.png
 
+messung*/
+
+*mergesortGo
