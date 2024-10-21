@@ -5,7 +5,7 @@ myenv/
 bash/
 
 *.jar
-*.txt
+List*.txt
 *.csv
 *.png
 
