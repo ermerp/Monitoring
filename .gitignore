@@ -6,8 +6,10 @@ bash/
 
 *.jar
 List*.txt
+Bank*.txt
 *.csv
 *.png
+*.exe
 
 messung*/
 

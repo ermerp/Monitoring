@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: mydatabase
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - pg_network
+    ports:
+      - "5432:5432"
+    healthcheck:
+        test: pg_isready -h postgres
+        interval: 10s
+        timeout: 5s
+        retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '3'
+        reservations:
+          cpus: '3'
+  
+  bank:
+    image: bank-go
+    environment:
+      DB_HOST: postgres #postgrest, postgres, localhost
+      INTERFACE_TYPE: PGX #REST, PGX
+      ALGORITHM: GOROUTINE #GOROUTINE, SINGLE
+      MAX_CONNECTIONS: 80
+      NUMBER_OF_ACCOUNTS: 10000
+      NUMBER_OF_TRANSACTIONS: 100000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pg_network
+    volumes:
+      - ./bankData:/bankData
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4000M
+        reservations:
+          cpus: '4'
+          memory: 4000M
+
+networks:
+  pg_network:
+    driver: bridge
+
+volumes:
+  postgres_data:

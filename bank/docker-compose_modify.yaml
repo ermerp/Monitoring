@@ -1,0 +1,64 @@
+networks:
+  pg_network:
+    driver: bridge
+services:
+  bank:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '6'
+          memory: 3000M
+        reservations:
+          cpus: '6'
+          memory: 3000M
+    environment:
+      ALGORITHM: PLATFORM
+      DB_HOST: postgrest
+      INTERFACE_TYPE: REST
+      MAX_CONNECTIONS: 80
+      NUMBER_OF_ACCOUNTS: '1000'
+      NUMBER_OF_TRANSACTIONS: 10000
+    image: bank-java
+    networks:
+    - pg_network
+    volumes:
+    - ./bankData:/bankData
+  postgres:
+    container_name: postgres
+    environment:
+      POSTGRES_DB: mydatabase
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_USER: myuser
+    healthcheck:
+      interval: 10s
+      retries: 5
+      test: pg_isready -h postgres
+      timeout: 5s
+    image: postgres:latest
+    networks:
+    - pg_network
+    ports:
+    - 5432:5432
+    volumes:
+    - postgres_data:/var/lib/postgresql/data
+    - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+  postgrest:
+    container_name: postgrest
+    depends_on:
+    - postgres
+    environment:
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_POOL: 10
+      PGRST_DB_SCHEMA: public
+      PGRST_DB_URI: postgres://myuser:mypassword@postgres:5432/mydatabase
+    image: postgrest/postgrest:latest
+    networks:
+    - pg_network
+    ports:
+    - 3000:3000
+version: '3.8'
+volumes:
+  postgres_data: null
