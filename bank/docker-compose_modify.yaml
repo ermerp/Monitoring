@@ -9,25 +9,32 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '6'
-          memory: 3000M
+          cpus: '4'
+          memory: 4000M
         reservations:
-          cpus: '6'
-          memory: 3000M
+          cpus: '4'
+          memory: 4000M
     environment:
-      ALGORITHM: PLATFORM
-      DB_HOST: postgrest
-      INTERFACE_TYPE: REST
+      ALGORITHM: GOROUTINE
+      DB_HOST: postgres
+      DELAY_TRANSACTION: '0.09999999999999999'
+      INTERFACE_TYPE: PGX
       MAX_CONNECTIONS: 80
       NUMBER_OF_ACCOUNTS: '1000'
-      NUMBER_OF_TRANSACTIONS: 10000
-    image: bank-java
+      NUMBER_OF_TRANSACTIONS: '100000'
+    image: bank-go
     networks:
     - pg_network
     volumes:
-    - ./bankData:/bankData
+    - ./bankData:/app/bankData
   postgres:
     container_name: postgres
+    deploy:
+      resources:
+        limits:
+          cpus: '3'
+        reservations:
+          cpus: '3'
     environment:
       POSTGRES_DB: mydatabase
       POSTGRES_PASSWORD: mypassword
@@ -45,20 +52,6 @@ services:
     volumes:
     - postgres_data:/var/lib/postgresql/data
     - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-  postgrest:
-    container_name: postgrest
-    depends_on:
-    - postgres
-    environment:
-      PGRST_DB_ANON_ROLE: anon
-      PGRST_DB_POOL: 10
-      PGRST_DB_SCHEMA: public
-      PGRST_DB_URI: postgres://myuser:mypassword@postgres:5432/mydatabase
-    image: postgrest/postgrest:latest
-    networks:
-    - pg_network
-    ports:
-    - 3000:3000
 version: '3.8'
 volumes:
   postgres_data: null

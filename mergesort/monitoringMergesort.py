@@ -6,11 +6,11 @@ import csv
 import platform
 
 # Constants
-#ALGORITHMS = ["platform", "virtual", "coroutines", "goroutines"]
-ALGORITHMS = ["virtual", "coroutines", "goroutines"]
+ALGORITHMS = ["platform", "virtual", "coroutines", "goroutines"]
 LIST_LENGTH = "10000000"
-RUNS = "100"
-WARMUP_RUNS = "10"
+RUNS = "10"
+WARMUP_RUNS = "0"
+MAX_DEPTH = 4
 
 # Directory setup
 EXECUTABLES_DIR = os.path.join(os.getcwd(), "executables")
@@ -106,11 +106,11 @@ def main():
     TIME_LOG = os.path.join(MEASUREMENTS_DIR, "measurement_log_time.csv")
     with open(TIME_LOG, 'w', newline='') as time_file:
         time_writer = csv.writer(time_file)
-        time_writer.writerow(['max_depth', 'virtual', 'coroutines', 'goroutines'])
+        time_writer.writerow(['max_depth', 'platform', 'virtual', 'coroutines', 'goroutines'])
 
         execution_times = {alg: {} for alg in ALGORITHMS}
 
-        for max_depth in range(0, 23):
+        for max_depth in range(0, MAX_DEPTH):
             for algorithm in ALGORITHMS:
                 measure(algorithm, str(max_depth), execution_times)
                 time.sleep(5)

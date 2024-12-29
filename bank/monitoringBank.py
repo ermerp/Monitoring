@@ -3,14 +3,15 @@ import time
 import os
 import csv
 import yaml
+import numpy as np
 
 # Parameter, die konstant bleiben
-ALGORITHMS = ["platform"]
-#ALGORITHMS = ["platform", "virtual", "coroutines", "goroutines"]
-INTERFACE_TYPE = "REST" #"REST", "SQL"
+ALGORITHMS = ["platform", "virtual", "coroutines", "goroutines"]
+INTERFACE_TYPE = "SQL" #"REST", "SQL"
 
 NUMBER_OF_ACCOUNTS = "1000"
-NUMBER_OF_TRANSACTIONS = "300000"
+NUMBER_OF_TRANSACTIONS = "100000"
+DELAY_TRANSACTION = 0.1
 
 # Verzeichnisse für die Dateien
 MEASUREMENTS_DIR = os.path.join(os.getcwd(), "measurements")
@@ -20,7 +21,7 @@ def run_bank_data_generator(number_of_accounts, number_of_transactions):
     subprocess.run(["java", "-jar", jar_path, number_of_accounts, number_of_transactions], capture_output=True, text=True)
     print("Data generateted")
 
-def modify_docker_compose_file(algorithm, interface, number_of_accounts, number_of_transactions):
+def modify_docker_compose_file(algorithm, interface, number_of_accounts, number_of_transactions, delay_transaction):
     # Lese den Inhalt der Vorlage
     docker_compse_file = ""
     if interface == "REST":
@@ -66,50 +67,52 @@ def modify_docker_compose_file(algorithm, interface, number_of_accounts, number_
             data["services"]["bank"]["environment"]["INTERFACE_TYPE"] = "PGX"
             data["services"]["bank"]["environment"]["DB_HOST"] = "postgres"
     
-    # Aktualisiere die Anzahl der Konten und Transaktionen
+    # Aktualisiere die Anzahl der Konten, Transaktionen und Verzögerung
     data["services"]["bank"]["environment"]["NUMBER_OF_ACCOUNTS"] = number_of_accounts
     data["services"]["bank"]["environment"]["NUMBER_OF_TRANSACTIONS"] = number_of_transactions
+    data["services"]["bank"]["environment"]["DELAY_TRANSACTION"] = str(delay_transaction)
 
     # Schreibe die aktualisierten Daten in die Datei
     with open("docker-compose_modify.yaml", "w") as file:
         yaml.dump(data, file, default_flow_style=False)
 
-    print("Docker-Compose-Datei wurde erfolgreich aktualisiert.")
+    print("Docker-Compose-Datei was modified successfully.")
 
 # Funktion zum Aufzeichnen von CPU-, Speicher- und PIDs-Statistiken
 def record_process_stats(service_name, writer, transactions):
     start_time = time.time()
     while True:
+
+        # Container-Namen, die abgefragt werden sollen
+        containers_to_check = [service_name, "postgres"]
+
         try:
-            # Führe docker stats aus und hole die Werte für CPU, Speicher und PIDs
+            # Aufruf von docker stats
             result = subprocess.run(
                 ["docker", "stats", "--no-stream", "--format", 
-                 "{{.CPUPerc}},{{.MemUsage}},{{.PIDs}}", service_name],
+                "{{.Name}},{{.CPUPerc}},{{.MemUsage}},{{.PIDs}}"],
                 capture_output=True,
                 text=True,
                 check=True
             )
 
-            # Parsen der Ausgabe von docker stats
-            output = result.stdout.strip()
-            if not output:
-                print(f"Service {service_name} nicht gefunden!")
-                break
+            # Verarbeitung der Ausgabe
+            all_stats = result.stdout.strip().splitlines()
+            filtered_stats = {}
 
-            cpu_usage, memory_usage, pids = output.split(",")
-            cpu_usage = float(cpu_usage.strip('%'))  # Entferne das Prozentzeichen
-            memory_usage = memory_usage.split('/')[0].strip().upper()  # Speicher extrahieren
-            if "MB" in memory_usage:
-                memory_usage = float(memory_usage.replace("MB", "").strip())
-            elif "GB" in memory_usage:
-                memory_usage = float(memory_usage.replace("GB", "").strip()) * 1024
-
-            pids = int(pids.strip())  # PIDs in Integer umwandeln
-
-            # Beende die Schleife, wenn PIDs 0 sind
-            #if pids == 0:
-            #    print(f"Alle Prozesse im Container {service_name} sind beendet (PIDs: {pids}). Überwachung wird beendet.")
-            #    break
+            for line in all_stats:
+                # Teile die Ausgabe in Name, CPU, Mem und PIDs
+                name, cpu, mem, pids = line.split(",", 3)
+                if name in containers_to_check:
+                    filtered_stats[name] = {
+                        "CPU": float(cpu.strip('%')),
+                        "Memory": mem.split('/')[0].strip().upper(),
+                        "PIDs": int(pids.strip())
+                    }
+                    if "MIB" in filtered_stats[name]["Memory"]:
+                        filtered_stats[name]["Memory"] = float(filtered_stats[name]["Memory"].replace("MIB", "").strip())
+                    elif "GIB" in filtered_stats[name]["Memory"]:
+                        filtered_stats[name]["Memory"] = float(filtered_stats[name]["Memory"].replace("GIB", "").strip()) * 1024
 
             # Überprüfe den Container-Status auf 'exited'
             inspect_result = subprocess.run(
@@ -131,33 +134,30 @@ def record_process_stats(service_name, writer, transactions):
                 exit_code = int(exit_code_result.stdout.strip())
                 
                 if exit_code == 0:
-                    print(f"Container {service_name} hat mit Exit-Code 0 beendet. Überwachung wird beendet.")
+                    print(f"Container {service_name} has exited with Exit-Code 0. Monitoring will be stopped.")
                 elif exit_code == 1:
-                    print(f"Container {service_name} hat mit Exit-Code 1 beendet. Fehler im Container! Überwachung wird beendet.")
+                    print(f"Container {service_name} has exited with Exit-Code 1. Monitoring will be stopped.")
                 else:
-                    print(f"Container {service_name} hat mit Exit-Code {exit_code} beendet. Überwachung wird beendet.")
+                    print(f"Container {service_name} has exited with Exit-Code {exit_code}. Monitoring will be stopped.")
                 break
 
             elapsed_time = round(time.time() - start_time, 1)  # Verstrichene Zeit
 
             # Schreibe Messwerte in die CSV
-            writer.writerow([transactions, elapsed_time, cpu_usage, memory_usage, pids])
-            print(f"Zeit: {elapsed_time}s, CPU: {cpu_usage}%, Speicher: {memory_usage}MB, PIDs: {pids}")
-
-            #time.sleep(0.2)
+            writer.writerow([transactions, elapsed_time, filtered_stats[service_name]["CPU"], filtered_stats[service_name]["Memory"], filtered_stats[service_name]["PIDs"], filtered_stats["postgres"]["CPU"]])
+            print(f"Time: {elapsed_time}s, CPU: {filtered_stats[service_name]['CPU']}%, RAM: {filtered_stats[service_name]['Memory']}MB, PIDs: {filtered_stats[service_name]['PIDs']}, Postgres CPU: {filtered_stats['postgres']['CPU']}%")
 
         except subprocess.CalledProcessError as e:
-            print(f"Fehler beim Ausführen von docker stats: {e}")
-            break
+            print(f"Error while running docker stats: {e}")
         except KeyboardInterrupt:
-            print("Überwachung beendet.")
+            print("Monitoring stopped.")
             break
 
 
-def measure(algorithm, transactions, execution_times):
+def measure(algorithm, delay, execution_times):
 
     # Programm starten
-    print(f"Starte Programm mit Algorithmus: {algorithm}")
+    print(f"Start measurement for {algorithm} with delay {delay}")
     docker_compose_file = "docker-compose_modify.yaml"
     process = subprocess.Popen(
             ["docker-compose", "-f", docker_compose_file, "up"],
@@ -185,19 +185,19 @@ def measure(algorithm, transactions, execution_times):
         writer = csv.writer(stats_file)
         if os.stat(csv_file).st_size == 0:
             # Header nur einmal schreiben, wenn Datei leer ist
-            writer.writerow(['transactions', 'timestamp', 'cpu_usage', 'memory_usage', 'num_threads'])
+            writer.writerow(['delay', 'timestamp', 'cpu_usage', 'memory_usage', 'num_threads', 'postgres_cpu'])
 
         # psutil Messung (CPU, Speicher und Threads)
-        record_process_stats("bank-bank-1", writer, transactions)
+        record_process_stats("bank-bank-1", writer, delay)
 
     # Endzeit nach der Ausführung messen
     end_time = time.time()
     execution_time = round(end_time - start_time, 1)
 
     # Speichere die Ausführungszeit für den jeweiligen Algorithmus in der Ausführungszeit-Liste
-    execution_times[algorithm][transactions] = execution_time
+    execution_times[algorithm][delay] = execution_time
 
-    print(f"Messung abgeschlossen: {algorithm}")
+    print(f"Stop measurement for {algorithm} - Time: {execution_time}s")
 
 
 def main():
@@ -209,7 +209,7 @@ def main():
     with open(TIME_LOG, 'w', newline='') as time_file:
         time_writer = csv.writer(time_file)
         # Header für die Ausführungszeiten schreiben
-        time_writer.writerow(['transactions', 'virtual', 'platform', 'coroutines', 'goroutines'])
+        time_writer.writerow(['delay', 'virtual', 'platform', 'coroutines', 'goroutines'])
 
         # Dictionary für die Ausführungszeiten jedes Algorithmus
         execution_times = {
@@ -219,28 +219,25 @@ def main():
             'goroutines': {}
         }
 
-        for transactions in range(100000, int(NUMBER_OF_TRANSACTIONS) + 1, 100000):
-            print(f"Number of Transactions set to: {transactions}")
+        for delay in np.arange(0.01, DELAY_TRANSACTION+0.001, 0.01):
+            print(f"Number of delay set to: {delay}")
 
-            run_bank_data_generator(NUMBER_OF_ACCOUNTS, str(transactions))
+            run_bank_data_generator(NUMBER_OF_ACCOUNTS, NUMBER_OF_TRANSACTIONS)
 
             # Für jedes transactions messen wir die Ausführungszeit für jeden Algorithmus
             for algorithm in ALGORITHMS:
                 
                 # Passe Docker-Compose-Datei an
-                modify_docker_compose_file(algorithm, INTERFACE_TYPE, NUMBER_OF_ACCOUNTS, transactions)
+                modify_docker_compose_file(algorithm, INTERFACE_TYPE, NUMBER_OF_ACCOUNTS, NUMBER_OF_TRANSACTIONS, delay)
 
                 # Führe die Messung für den aktuellen Algorithmus durch
-                measure(algorithm, transactions, execution_times)
+                measure(algorithm, delay, execution_times)
 
                 time.sleep(1)
 
             # Sobald alle Algorithmen für dieses transactions gemessen wurden, speichern wir die Daten
-            row = row = [transactions]
-            # Füge die Ausführungszeiten für jeden Algorithmus hinzu
-            for algorithm in ALGORITHMS:
-                row.append(execution_times[algorithm].get(str(transactions), 'N/A'))
-            # Schreibe die Zeile in die CSV-Datei
+            row = [delay] + [execution_times[alg].get(delay, 'N/A') for alg in ALGORITHMS]
+
             time_writer.writerow(row)
 
 if __name__ == "__main__":

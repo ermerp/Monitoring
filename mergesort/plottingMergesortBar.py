@@ -3,29 +3,42 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
-# Verzeichnisse für die Daten und Plots
+# Schriftgröße anpassen
+plt.rcParams.update({
+    'font.size': 14,           # Allgemeine Schriftgröße
+    'axes.titlesize': 16,      # Schriftgröße für Titel der Achsen
+    'axes.labelsize': 16,      # Schriftgröße für Achsentitel
+    'xtick.labelsize': 12,     # Schriftgröße für die X-Achse Ticklabels
+    'ytick.labelsize': 12,     # Schriftgröße für die Y-Achse Ticklabels
+    'legend.fontsize': 12,     # Schriftgröße für Legenden
+    'figure.titlesize': 14     # Schriftgröße für Figur-Titel
+})
+
+# Verzeichnisse für die Daten, Plots und aggregierte Daten
 MEASUREMENTS_DIR = os.path.join(os.getcwd(), "measurements")
 PLOTS_DIR = os.path.join(os.getcwd(), "plots")
+AGGREGATED_DIR = os.path.join(os.getcwd(), "aggregated")
 
-# Sicherstellen, dass der Plots-Ordner existiert
+# Sicherstellen, dass die Ordner algorithms = [
 os.makedirs(PLOTS_DIR, exist_ok=True)
+os.makedirs(AGGREGATED_DIR, exist_ok=True)
 
 # Liste der Algorithmen und zugehörigen Dateinamen
-algorithms = ["virtual", "platform", "coroutines", "goroutines"]
+algorithms = ["platform", "virtual", "coroutines", "goroutines"]
 csv_files = [os.path.join(MEASUREMENTS_DIR, f"measurement_log_{alg}.csv") for alg in algorithms]
 
 # Der Pfad zur neuen measurement_log_time.csv für Ausführungszeit
 TIME_LOG = os.path.join(MEASUREMENTS_DIR, "measurement_log_time.csv")
 
 # Farben für die Plots
-colors = ['orange', 'red', 'blue', 'green']  # virtual -> orange, platform -> red, coroutines -> blue, goroutines -> green
+colors = ['red', 'orange', 'blue', 'green']  # virtual -> orange, platform -> red, coroutines -> blue, goroutines -> green
 
 # Labels für die Legende
 labels = {
-    "virtual": "Virtual Threads",
-    "platform": "Platform Threads",
-    "coroutines": "Coroutinen",
-    "goroutines": "Goroutinen"
+    "virtual": "Java: Virtual Threads",
+    "platform": "Java: Platform Threads",
+    "coroutines": "Kotlin: Coroutinen",
+    "goroutines": "Go: Goroutinen"
 }
 
 # Maximale und durchschnittliche Werte für jeden Algorithmus speichern
@@ -63,6 +76,48 @@ time_data['platform'] = pd.to_numeric(time_data['platform'], errors='coerce')
 time_data['coroutines'] = pd.to_numeric(time_data['coroutines'], errors='coerce')
 time_data['goroutines'] = pd.to_numeric(time_data['goroutines'], errors='coerce')
 
+# Funktion zum Abrunden auf null Nachkommastellen
+def round_to_zero(value):
+    return int(value)
+
+# Daten für alle Algorithmen zusammenfassen und in CSV-Dateien speichern
+def save_aggregated_csv(metric, metric_name):
+    aggregated_data = pd.DataFrame()
+
+    for ALGORITHM in algorithms:
+        max_values = max_values_dict[ALGORITHM]
+        mean_values = mean_values_dict[ALGORITHM]
+
+        # Kombinieren von max und mean Werten
+        combined = pd.DataFrame({
+            'max_depth': max_values['max_depth'] + 1,  # +1 bei max_depth
+            f'{ALGORITHM}_max_{metric_name}': max_values[metric].apply(round_to_zero),
+            f'{ALGORITHM}_mean_{metric_name}': mean_values[metric].apply(round_to_zero)
+        })
+
+        if aggregated_data.empty:
+            aggregated_data = combined
+        else:
+            aggregated_data = pd.merge(aggregated_data, combined, on='max_depth', how='outer')
+
+    # Speichern der aggregierten Daten in einer CSV-Datei
+    aggregated_data.to_csv(os.path.join(AGGREGATED_DIR, f"{metric_name}_aggregated.csv"), index=False)
+
+# Speichern der aggregierten Werte für CPU, Memory und Threads
+save_aggregated_csv('cpu_usage', 'cpu_usage')
+save_aggregated_csv('memory_usage', 'memory_usage')
+save_aggregated_csv('num_threads', 'num_threads')
+
+# Speichern der Ausführungszeit-Daten für alle Algorithmen
+execution_time_aggregated = pd.DataFrame({
+    'max_depth': time_data['max_depth'] + 1,  # +1 bei max_depth
+    'virtual_execution_time': time_data['virtual'],
+    'platform_execution_time': time_data['platform'],
+    'coroutines_execution_time': time_data['coroutines'],
+    'goroutines_execution_time': time_data['goroutines']
+})
+execution_time_aggregated.to_csv(os.path.join(AGGREGATED_DIR, "execution_time_aggregated.csv"), index=False)
+
 # Funktion für das Plotten von Metriken als Säulendiagramm
 def plot_metric_bar(metric, ylabel, filename):
     plt.figure(figsize=(12, 6))
@@ -75,7 +130,7 @@ def plot_metric_bar(metric, ylabel, filename):
         mean_values = mean_values_dict[ALGORITHM]
         
         # Positionen auf der X-Achse für die Balken
-        positions = max_values['max_depth'] + (i - (num_algorithms - 1) / 2) * width
+        positions = (max_values['max_depth'] + 1) + (i - (num_algorithms - 1) / 2) * width
         
         # Max-Wert-Balken
         plt.bar(
@@ -97,7 +152,7 @@ def plot_metric_bar(metric, ylabel, filename):
             alpha=1.0
         )
 
-    plt.title(f'{ylabel} mit Maximal- und Mittelwerten pro maximaler Baumebene')
+    #plt.title(f'{ylabel} mit Maximal- und Mittelwerten pro maximaler Baumebene')
     plt.xlabel('Maximale Baumebene')
     plt.ylabel(ylabel)
 
@@ -111,12 +166,11 @@ def plot_metric_bar(metric, ylabel, filename):
         handlelength=2
     )
     
-    plt.xticks(max_values_dict[algorithms[0]]['max_depth'])
+    plt.xticks(max_values_dict[algorithms[0]]['max_depth'] + 1)
     plt.grid(axis='y')
     plt.tight_layout()
     plt.savefig(os.path.join(PLOTS_DIR, filename))
     plt.clf()
-
 
 # Plot für Ausführungsdauer als Säulendiagramm erstellen
 def plot_execution_time_bar():
@@ -127,7 +181,7 @@ def plot_execution_time_bar():
     
     for i, (ALGORITHM, color) in enumerate(zip(algorithms, colors)):
         # Positionen auf der X-Achse für die Balken
-        positions = time_data['max_depth'] + (i - (num_algorithms - 1) / 2) * width
+        positions = (time_data['max_depth'] + 1) + (i - (num_algorithms - 1) / 2) * width
         
         # Zeichne die Balken
         plt.bar(
@@ -136,12 +190,12 @@ def plot_execution_time_bar():
             width=width,
             label=labels[ALGORITHM],
             color=color,
-            alpha=0.7
+            alpha=1.0
         )
 
-    plt.title('Ausführungsdauer pro maximaler Baumebene')
+    #plt.title('Ausführungsdauer pro maximaler Baumebene')
     plt.xlabel('Maximale Baumebene')  # X-Achse als Baum-Ebene bezeichnen
-    plt.ylabel('Ausführungsdauer (s)')
+    plt.ylabel('Ausführungsdauer in Sekunden')
 
     # Positioniere die Legende unter dem Diagramm
     plt.legend(
@@ -153,18 +207,17 @@ def plot_execution_time_bar():
         handlelength=2  # Länge der Symbole in der Legende
     )
 
-    plt.xticks(time_data['max_depth'])  # X-Achse mit max_depth-Werten
+    plt.xticks(time_data['max_depth'] + 1)  # X-Achse mit max_depth + 1 Werten
     plt.grid(axis='y')
     plt.tight_layout()
     plt.savefig(os.path.join(PLOTS_DIR, "execution_time_plot.png"))
     plt.clf()
 
-
 # CPU Usage Plot als Säulendiagramm
-plot_metric_bar("cpu_usage", "CPU-Auslastung (%)", "cpu_usage_bar_plot.png")
+plot_metric_bar("cpu_usage", "CPU-Auslastung in Prozent", "cpu_usage_bar_plot.png")
 
 # Memory Usage Plot als Säulendiagramm
-plot_metric_bar("memory_usage", "Arbeitsspeicherverbrauch (MB)", "memory_usage_bar_plot.png")
+plot_metric_bar("memory_usage", "Arbeitsspeicherverbrauch in MB", "memory_usage_bar_plot.png")
 
 # Execution Time Plot als Säulendiagramm
 plot_execution_time_bar()
@@ -173,3 +226,4 @@ plot_execution_time_bar()
 plot_metric_bar("num_threads", "Thread-Anzahl", "num_threads_bar_plot.png")
 
 print("Plotting with bar charts done")
+print("Aggregated CSV files have been created in the 'aggregated' folder.")
